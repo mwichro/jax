@@ -28,3 +28,24 @@ The changes would be confined solely to Python inside `jax/_src/pallas/triton/lo
 
 ## Summary
 The required changes are **very shallow** (confined mostly to `jax/_src/pallas/triton/lowering.py`). No upstream modifications to Triton C++ MLIR internals are necessary. You can just bypass the JAX `< 16` safeguard or elegantly assemble `splat` + `cat` MLIR nodes to pad the boundaries and achieve peak fp64 shapes will naturally map to their proper Tensor Core mappings.
+
+# Status Update (March 5, 2026)
+* **Environment**: 4x A100 environment is configured and verified with JAX 0.9.x and local Triton/JAX builds.
+* **FP64 Support**: Lowering rules in `jax/_src/pallas/triton/lowering.py` have been updated to support `fp64` accumulators, fixing precision loss where values were previously truncated to `f32`.
+* **Dimension Relaxing**: The artificial 16x16x16 barrier was removed and replaced with a data-type-aware check.
+* **Segfault Guard**: Identified a crash in Triton's `MMAv2.cpp` when `M < 16` or `K < 16` for `fp64`. Added a precise `ValueError` to JAX to prevent compiler segfaults while allowing valid smaller tiles for other dtypes.
+
+## Analysis of $I \otimes M \otimes I \cdot u$ Packing
+Yes, your understanding is correct. If you are applying a 1D operator $M$ (size 8x8) over a 3D grid $u$ (8x8x8), you can reshape $u$ to avoid the `dim < 16` hardware limitation without adding zero-padding.
+
+Since the operator acts on one dimension and is an identity on the others, you can "fold" one of the identity dimensions into the batch or the contraction dimension:
+
+*   **Batch Folding ($M > 16$):** Instead of treating each slice as an 8x8 matrix, you can reshape your input $u$ from `(8, 8, 8)` to `(8*8, 8)` i.e., `(64, 8)`. Now your $M \cdot u_{folded}$ operation has:
+    *   $M = 64$ (Greater than 16)
+    *   $K = 8$ (Native `m8n8k4` compatible)
+    *   $N = 8$ (Native `m8n8k4` compatible)
+*   **No Padding Needed:** Because the "Logical $M$" dimension is now 64, it satisfies the Triton `MMAv2` warp-tile requirement ($M \ge 16$). The hardware naturally parallelizes the 64 rows across the warps.
+*   **Result:** This allows you to utilize the `fp64` Tensor Cores (`mma.m8n8k4`) at full throughput without any dummy calculations or `cat` operations.
+*   **Implementation**: In Pallas, you can achieve this by using `at[i, j].load()` where the viewed block size is configured to be 16 or 32 instead of 8, effectively packing multiple logical elements into one Triton `tt.dot` call.
+
+

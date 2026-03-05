@@ -2318,9 +2318,26 @@ def _dot_general_lowering(
 
   m, k = a_type.shape
   _, n = b_type.shape
-  if getattr(a_type.element_type, "is_f64", False) or a_type.element_type == ir.F64Type.get():
-    if min(m, n, k) < 16:
-      raise ValueError("all dimensions of a and b must be >= 16 for float64 to avoid Triton compiler segfault")
+  if a_type.element_type == ir.F64Type.get():
+    # Triton's MMAv2 fp64 path uses the m8n8k4 PTX instruction but aggregates
+    # it with NumRegisters={m:2, n:1, k:4}, producing an effective m16n8k16
+    # per-warp tile.  Blocks smaller than these minimums cause repM/repN/repK
+    # to round to zero, corrupting the ValueTable and segfaulting the compiler.
+    #   M >= 16  (2 × instrM=8)
+    #   N >=  8  (1 × instrN=8)
+    #   K >= 16  (4 × instrK=4)
+    errors = []
+    if m < 16:
+      errors.append(f"M={m} < 16")
+    if n < 8:
+      errors.append(f"N={n} < 8")
+    if k < 16:
+      errors.append(f"K={k} < 16")
+    if errors:
+      raise ValueError(
+          f"float64 dot requires M>=16, N>=8, K>=16 per warp tile "
+          f"(Triton MMAv2 m8n8k4 layout); got {', '.join(errors)}"
+      )
 
   if a_type.element_type != b_type.element_type:
     raise ValueError(
