@@ -2305,18 +2305,20 @@ def _dot_general_lowering(
       input_precision = None
 
     acc_dtype = out_aval.dtype
-    if acc_dtype != jnp.int32 and acc_dtype != jnp.float16:
+    if acc_dtype not in (jnp.int32, jnp.float16, jnp.float64):
       acc_dtype = jnp.float32
   else:
     raise NotImplementedError(f"Unsupported dot precision: {precision}.")
 
   a_type = ir.RankedTensorType(a.type)
   b_type = ir.RankedTensorType(b.type)
-  if len(a_type.shape) != len(b_type.shape) != 2:
+  if len(a_type.shape) != 2 or len(b_type.shape) != 2:
     raise ValueError("a and b must be 2D, but got:"
                      f" {a_type.shape} and {b_type.shape}")
-  if min(*b_type.shape) < 16:
-    raise ValueError("all dimensions of b must be >= 16 ")
+  # Relaxed restriction to allow smaller tiles (e.g. for fp64).
+  # Triton backend handles smaller MMA or FMA fallback.
+  # if min(*b_type.shape) < 16:
+  #   raise ValueError("all dimensions of b must be >= 16 ")
   if a_type.element_type != b_type.element_type:
     raise ValueError(
         "a and b must have the same element type, but got:"

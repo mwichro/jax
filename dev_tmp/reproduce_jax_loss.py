@@ -2,6 +2,7 @@ import time
 import jax
 import jax.numpy as jnp
 from jax.experimental import pallas as pl
+from jax.experimental.pallas import triton as plt
 from functools import partial
 
 # -----------------------------------------------------------------------------
@@ -85,7 +86,7 @@ def run_minimal_smoother(u_global, p, block_size):
         out_shape=jax.ShapeDtypeStruct(u_global.shape, u_global.dtype),
         grid=(grid_size,),
         interpret=False,
-        backend="triton"
+        compiler_params=plt.CompilerParams()
     )(u_global, f_global)
 
 # -----------------------------------------------------------------------------
@@ -93,7 +94,7 @@ def run_minimal_smoother(u_global, p, block_size):
 # -----------------------------------------------------------------------------
 def main():
     # Setup problem exactly parameters as the original failing bench
-    p = 7
+    p = 3
     n_patches = 1000 * 64  # Scale to generate enough work (8000 patches)
     block_size = 1
     dtype = jnp.float32    # Issue frequently surfaces in high-precision unrolling
