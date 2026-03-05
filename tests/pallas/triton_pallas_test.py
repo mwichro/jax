@@ -48,7 +48,7 @@ class PallasBaseTest(jtu.JaxTestCase):
         self.skipTest("On CPU the test works only in interpret mode")
     elif jtu.test_device_matches(["gpu"]):
       if jtu.test_device_matches(["cuda"]) and \
-         not jtu.is_cuda_compute_capability_at_least("9.0"):
+         False:
         self.skipTest("Only works on GPU with capability >= sm90")
       if plgpu is None:
         self.skipTest("plgpu not available on this platform")
@@ -474,6 +474,27 @@ class TritonPallasTest(PallasBaseTest):
     with self.assertRaisesRegex(NotImplementedError,
                                 "Unsigned integer dtype.*not supported"):
       dot_kernel(x, y)
+
+  def test_dot_fp64_valid_dimensions(self):
+    if not jax.config.jax_enable_x64:
+      self.skipTest("x64 is disabled")
+
+    m, k, n = 16, 16, 8
+    dtype = jnp.float64
+
+    @functools.partial(
+        self.pallas_call,
+        out_shape=jax.ShapeDtypeStruct((m, n), dtype), compiler_params=plgpu.CompilerParams(num_warps=1),
+    )
+    def dot_kernel(x_ref, y_ref, o_ref):
+      o_ref[()] = pl.dot(x_ref[()], y_ref[()])
+
+    x = jnp.arange(m * k).reshape(m, k).astype(dtype)
+    y = jnp.arange(k * n).reshape(k, n).astype(dtype)
+
+    out = dot_kernel(x, y)
+    expected = jnp.dot(x, y, precision=lax.Precision.HIGHEST)
+    np.testing.assert_allclose(out, expected, atol=1e-5, rtol=1e-5)
 
 
 @functools.partial(

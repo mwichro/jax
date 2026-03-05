@@ -48,4 +48,9 @@ Since the operator acts on one dimension and is an identity on the others, you c
 *   **Result:** This allows you to utilize the `fp64` Tensor Cores (`mma.m8n8k4`) at full throughput without any dummy calculations or `cat` operations.
 *   **Implementation**: In Pallas, you can achieve this by using `at[i, j].load()` where the viewed block size is configured to be 16 or 32 instead of 8, effectively packing multiple logical elements into one Triton `tt.dot` call.
 
+## The Bug in JAX primitive `dot`
+During the investigation it was discovered that the `pl.dot` primitive systematically degraded `fp64` computations down to `fp32` accumulators within the lowering configuration. In `jax/_src/pallas/primitives.py`, the return element-type logic (`out_dtype`) was naively configured as `jnp.int32` for integer payloads, but blindly defaulted everything else to `jnp.float32`. This caused our test kernels attempting to execute valid FP64 dot products to generate an intermediate compilation output requiring `{f64, f64} -> f32`, which lacked a direct `mma` backend mapping on existing NVIDIA hardware, failing with: `error: Unsupported MMA instruction for the given mma type`. 
+
+By patching `jax/_src/pallas/primitives.py` so the `out_dtype` calculation explicitly preserves `jnp.float64` out of an `fp64` dot product, Triton compiles straightforwardly down to `mma.sync.aligned.m8n8k4.row.col.f64.f64.f64.f64` using `NumRegisters = {2, 1, 4}` within `MMAv2.cpp`.
+
 
