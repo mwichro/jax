@@ -2315,18 +2315,19 @@ def _dot_general_lowering(
   if len(a_type.shape) != 2 or len(b_type.shape) != 2:
     raise ValueError("a and b must be 2D, but got:"
                      f" {a_type.shape} and {b_type.shape}")
-  # Relaxed restriction to allow smaller tiles (e.g. for fp64).
-  # Triton backend handles smaller MMA or FMA fallback.
-  # if min(*b_type.shape) < 16:
-  #   raise ValueError("all dimensions of b must be >= 16 ")
+
+  m, k = a_type.shape
+  _, n = b_type.shape
+  if getattr(a_type.element_type, "is_f64", False) or a_type.element_type == ir.F64Type.get():
+    if min(m, n, k) < 16:
+      raise ValueError("all dimensions of a and b must be >= 16 for float64 to avoid Triton compiler segfault")
+
   if a_type.element_type != b_type.element_type:
     raise ValueError(
         "a and b must have the same element type, but got:"
         f" {a_type.element_type} and {b_type.element_type}"
     )
 
-  m, _ = a_type.shape
-  _, n = b_type.shape
   assert acc_dtype is not None
   acc = _zeros(ir.RankedTensorType.get([m, n], _dtype_to_ir_type(acc_dtype)))
 

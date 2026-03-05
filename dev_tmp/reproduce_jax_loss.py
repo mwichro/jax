@@ -94,12 +94,12 @@ def run_minimal_smoother(u_global, p, block_size):
 # -----------------------------------------------------------------------------
 def main():
     # Setup problem exactly parameters as the original failing bench
-    p = 3
-    n_patches = 1000 * 64  # Scale to generate enough work (8000 patches)
+    p = 7
+    n_patches = 1000 * 64  # Scale to generate enough work (64000 patches)
     block_size = 1
-    dtype = jnp.float32    # Issue frequently surfaces in high-precision unrolling
+    dtype = jnp.float64    # Issue frequently surfaces in high-precision unrolling
 
-    # jax.config.update("jax_enable_x64", True)
+    jax.config.update("jax_enable_x64", True)
     
     P = p + 1
     print(f"JAX Version: {jax.__version__}")
